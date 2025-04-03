@@ -1,0 +1,54 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+from scipy.spatial.distance import pdist, squareform
+
+# Exemple de matrice utilisateur-article (doit être remplacée par tes propres données)
+data = {
+    'Film A': [5, np.nan, 3, 4],
+    'Film B': [4, 5, np.nan, 2],
+    'Film C': [np.nan, 4, 2, 5],
+    'Film D': [3, 4, 5, np.nan]
+}
+user_item_matrix = pd.DataFrame(data, index=['User 1', 'User 2', 'User 3', 'User 4'])
+
+# Films notés par l'utilisateur (à récupérer dynamiquement)
+film1, note1 = 'Film A', 5
+film2, note2 = 'Film B', 4
+film3, note3 = 'Film C', 3
+already_rated = {film1, film2, film3}
+
+with st.expander("🔹 Recommandation par filtrage collaboratif Item-Item"):
+    if user_item_matrix is not None:
+        # Transposer la matrice pour obtenir les films en lignes
+        item_matrix = user_item_matrix.T
+        
+        # Calcul de la matrice de similarité cosinus entre les films
+        similarity_matrix_items = 1 - pdist(item_matrix.fillna(0), metric='cosine')
+        similarity_matrix_items = squareform(similarity_matrix_items)
+        
+        # Conversion en DataFrame
+        similarity_df_items = pd.DataFrame(similarity_matrix_items, 
+                                           index=item_matrix.index, 
+                                           columns=item_matrix.index)
+        
+        # Initialisation des scores
+        scores = pd.Series(0, index=item_matrix.index, dtype=float)
+        
+        # Calcul des scores de recommandation
+        for film, note in zip([film1, film2, film3], [note1, note2, note3]):
+            if film in similarity_df_items.columns:
+                sim_scores = similarity_df_items[film] * note
+                scores = scores.add(sim_scores, fill_value=0)
+        
+        # Trier les recommandations en excluant les films déjà notés
+        top_item_item = scores.drop(index=already_rated, errors='ignore').sort_values(ascending=False).head(5)
+        
+        # Afficher les recommandations
+        if not top_item_item.empty:
+            for title, score in top_item_item.items():
+                st.write(f"- **{title}** (score estimé : {score:.2f}★)")
+        else:
+            st.info("Aucune recommandation disponible.")
+    else:
+        st.info("👈 Utilisez la barre latérale pour sélectionner vos films préférés")
