@@ -140,55 +140,92 @@ elif page == "🎬 Recommandation":
             }, index=jaccard_scores.index)
             st.dataframe(contenu_df)
 
-        # 🔹 User-User
-        similarities = {}
-        for user in user_item_matrix.index:
-            if user == new_user_id:
-                continue
-            both_rated = user_item_matrix.loc[new_user_id].notna() & user_item_matrix.loc[user].notna()
-            if both_rated.sum() < 2:
-                continue
-            new_user_ratings = user_item_matrix.loc[new_user_id, both_rated] - target_user_mean
-            other_user_ratings = user_item_matrix.loc[user, both_rated] - user_means[user]
-            num = (new_user_ratings * other_user_ratings).sum()
-            den = np.sqrt((new_user_ratings**2).sum() * (other_user_ratings**2).sum())
-            if den == 0:
-                continue
-            sim = num / den
-            if sim > 0:
-                similarities[user] = sim
+               # 🔹 User-User
+        with st.expander("🔹 Recommandation par User-User"):
+            similarities = {}
+            for user in user_item_matrix.index:
+                if user == new_user_id:
+                    continue
+                both_rated = user_item_matrix.loc[new_user_id].notna() & user_item_matrix.loc[user].notna()
+                if both_rated.sum() < 2:
+                    continue
+                new_user_ratings = user_item_matrix.loc[new_user_id, both_rated] - target_user_mean
+                other_user_ratings = user_item_matrix.loc[user, both_rated] - user_means[user]
+                num = (new_user_ratings * other_user_ratings).sum()
+                den = np.sqrt((new_user_ratings**2).sum() * (other_user_ratings**2).sum())
+                if den == 0:
+                    continue
+                sim = num / den
+                if sim > 0:
+                    similarities[user] = sim
 
-        top_neighbors = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:5]
-        user_user_recommendations = {}
-        for movie in user_item_matrix.columns:
-            if movie in already_rated:
-                continue
-            weighted_sum = 0.0
-            sim_sum = 0.0
-            for (neighbor, sim) in top_neighbors:
-                if not pd.isna(user_item_matrix.at[neighbor, movie]):
-                    neighbor_rating = user_item_matrix.at[neighbor, movie]
-                    neighbor_mean = user_means[neighbor]
-                    weighted_sum += sim * (neighbor_rating - neighbor_mean)
-                    sim_sum += abs(sim)
-            if sim_sum > 0:
-                predicted_rating = target_user_mean + (weighted_sum / sim_sum)
-                user_user_recommendations[movie] = predicted_rating
+            top_neighbors = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:5]
+            user_user_recommendations = {}
+            for movie in user_item_matrix.columns:
+                if movie in already_rated:
+                    continue
+                weighted_sum = 0.0
+                sim_sum = 0.0
+                for (neighbor, sim) in top_neighbors:
+                    if not pd.isna(user_item_matrix.at[neighbor, movie]):
+                        neighbor_rating = user_item_matrix.at[neighbor, movie]
+                        neighbor_mean = user_means[neighbor]
+                        weighted_sum += sim * (neighbor_rating - neighbor_mean)
+                        sim_sum += abs(sim)
+                if sim_sum > 0:
+                    predicted_rating = target_user_mean + (weighted_sum / sim_sum)
+                    user_user_recommendations[movie] = predicted_rating
 
-        st.subheader("Recommandations - Méthode User-User")
-        if user_user_recommendations:
-            sorted_user_user_recs = sorted(user_user_recommendations.items(), key=lambda x: x[1], reverse=True)
-            for title, score in sorted_user_user_recs[:5]:
-                st.write(f"- **{title}** (score prédictif : {score:.2f}★)")
-        else:
-            st.write("*(Aucune recommandation - pas de voisins similaires.)*")
+            st.subheader("Recommandations - Méthode User-User")
+            if user_user_recommendations:
+                sorted_user_user_recs = sorted(user_user_recommendations.items(), key=lambda x: x[1], reverse=True)
+                for title, score in sorted_user_user_recs[:5]:
+                    st.write(f"- **{title}** (score prédictif : {score:.2f}★)")
+            else:
+                st.write("*(Aucune recommandation - pas de voisins similaires.)*")
 
         # 🔹 Item-Item
-        def item_similarity(item1, item2):
-            users_item1 = set(df[df['title'] == item1]['userId'])
-            users_item2 = set(df[df['title'] == item2]['userId'])
-            common_users = users_item1 & users_item2
-            if len(common_users) < 2:
+        with st.expander("🔹 Recommandation par Item-Item"):
+            def item_similarity(item1, item2):
+                users_item1 = set(df[df['title'] == item1]['userId'])
+                users_item2 = set(df[df['title'] == item2]['userId'])
+                common_users = users_item1 & users_item2
+                if len(common_users) < 2:
+                    return 0
+                diff1 = []
+                diff2 = []
+                for u in common_users:
+                    r1 = user_item_matrix.at[u, item1]
+                    r2 = user_item_matrix.at[u, item2]
+                    diff1.append(r1 - user_means[u])
+                    diff2.append(r2 - user_means[u])
+                numerator = np.dot(diff1, diff2)
+                denominator = np.sqrt(np.sum(np.square(diff1)) * np.sum(np.square(diff2)))
+                return numerator / denominator if denominator != 0 else 0
+
+            item_item_recommendations = {}
+            for movie in user_item_matrix.columns:
+                if movie in already_rated:
+                    continue
+                weighted_sum = 0.0
+                sim_sum = 0.0
+                for rated_movie, rating in zip([film1, film2, film3], [note1, note2, note3]):
+                    sim = item_similarity(movie, rated_movie)
+                    if sim > 0:
+                        weighted_sum += sim * (rating - target_user_mean)
+                        sim_sum += sim
+                if sim_sum > 0:
+                    predicted_rating = target_user_mean + (weighted_sum / sim_sum)
+                    item_item_recommendations[movie] = predicted_rating
+
+            st.subheader("Recommandations - Méthode Item-Item")
+            if item_item_recommendations:
+                sorted_item_item_recs = sorted(item_item_recommendations.items(), key=lambda x: x[1], reverse=True)
+                for title, score in sorted_item_item_recs[:5]:
+                    st.write(f"- **{title}** (score prédictif : {score:.2f}★)")
+            else:
+                st.write("*(Aucune recommandation - données insuffisantes.)*")
+
                 return 0
             diff1 = []
             diff2 = []
