@@ -1,35 +1,41 @@
-with st.expander("🔹 Recommandation par KNN"):
-    knn = NearestNeighbors(metric='cosine', algorithm='brute')
-    knn.fit(user_item_matrix)
-    distances, indices = knn.kneighbors([user_item_matrix.loc[new_user_id]], n_neighbors = 6)
-    knn_scores = user_item_matrix.iloc[indices[0][1:]].mean().sort_values(ascending = False)
-    top_knn = knn_scores.drop(index = already_rated).head(5)
-    for title, score in top_knn.items():
-        st.write(f"- **{title}** (score estimé : {score:.2f}★)")
+def item_similarity(item1, item2, user_item_matrix, user_means):
+    users_item1 = set(user_item_matrix.index[user_item_matrix[item1].notna()])
+    users_item2 = set(user_item_matrix.index[user_item_matrix[item2].notna()])
+    common_users = users_item1 & users_item2
 
-with st.expander("🔹 Recommandation par filtrage collaboratif User-User"):
-    similarity_matrix = 1 - pdist(user_item_matrix.fillna(0), metric='cosine')
-    similarity_matrix = squareform(similarity_matrix)
-    similarity_df = pd.DataFrame(similarity_matrix, index=user_item_matrix.index, columns=user_item_matrix.index)
+    if len(common_users) < 2:
+        return 0
 
-    similar_users = similarity_df[new_user_id].drop(new_user_id).sort_values(ascending=False).head(5).index
-    user_based_scores = user_item_matrix.loc[similar_users].mean().sort_values(ascending=False)
-    top_user_user = user_based_scores.drop(index=already_rated).head(5)
+    diff1 = []
+    diff2 = []
+    for user in common_users:
+        diff1.append(user_item_matrix.at[user, item1] - user_means[user])
+        diff2.append(user_item_matrix.at[user, item2] - user_means[user])
 
-    for title, score in top_user_user.items():
-        st.write(f"- **{title}** (score estimé : {score:.2f}★)")
+    diff1, diff2 = np.array(diff1), np.array(diff2)
+
+    numerator = (diff1 * diff2).sum()
+    denominator = np.sqrt((diff1**2).sum() * (diff2**2).sum())
+
+    return numerator / denominator if denominator != 0 else 0
 
 with st.expander("🔹 Recommandation par filtrage collaboratif Item-Item"):
     item_matrix = user_item_matrix.T
-    similarity_matrix_items = 1 - pdist(item_matrix.fillna(0), metric='cosine')
-    similarity_matrix_items = squareform(similarity_matrix_items)
-    similarity_df_items = pd.DataFrame(similarity_matrix_items, index=item_matrix.index, columns=item_matrix.index)
+    user_means = user_item_matrix.mean(axis=1)
 
     scores = pd.Series(0, index=item_matrix.index, dtype=float)
-    for film, note in zip([film1, film2, film3], [note1, note2, note3]):
-        sim_scores = similarity_df_items[film] * note
-        scores = scores.add(sim_scores, fill_value=0)
+    sim_sum = pd.Series(0, index=item_matrix.index, dtype=float)
 
-    top_item_item = scores.drop(index=already_rated).sort_values(ascending=False).head(5)
+    for film, note in zip([film1, film2, film3], [note1, note2, note3]):
+        for other_film in item_matrix.index:
+            if other_film not in already_rated:
+                sim = item_similarity(film, other_film, user_item_matrix, user_means)
+                scores[other_film] += sim * note
+                sim_sum[other_film] += abs(sim)
+
+    scores = scores.div(sim_sum).dropna()
+    top_item_item = scores.sort_values(ascending=False).head(5)
+
     for title, score in top_item_item.items():
+        st.write(f"- **{title}** (score estimé : {score:.2f}★)")
         st.write(f"- **{title}** (score estimé : {score:.2f}★)")
